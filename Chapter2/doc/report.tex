@@ -1,0 +1,411 @@
+\documentclass[a4paper,10pt,twocolumn]{article}
+
+\usepackage{ctex}  % 中文支持
+\usepackage{amsmath,amssymb,amsfonts}  % 数学公式
+\usepackage{graphicx}  % 图片支持
+\usepackage{booktabs}  % 表格美化
+\usepackage[
+    colorlinks=true,
+    urlcolor=blue
+]{hyperref}
+\usepackage{cite}  % 引用
+\usepackage{multirow}  % 表格中的多行单元格
+\usepackage{listings}  % 代码展示
+\usepackage{xcolor}  % 颜色支持
+\usepackage{algorithm}  % 算法环境
+\usepackage{algpseudocode}  % 算法伪代码
+\usepackage{subfigure}  % 子图支持
+\usepackage{geometry}  % 设置页面边距
+\usepackage{array}     % 用于表格列宽控制
+\usepackage{tabularx}  % 更灵活的表格控制
+\usepackage{makecell}  % 单元格中的换行
+\usepackage{float}     % 提供 H 选项以强制表格位置
+\usepackage{stfloats}  % 支持底部跨栏浮动
+\usepackage{adjustbox} % 用于调整表格大小
+
+% 设置A4纸张的页面边距，优化双栏布局
+\geometry{
+    a4paper,
+    left=2cm,
+    right=2cm,
+    top=2cm,
+    bottom=2cm,
+    columnsep=1.2cm  % 增加两栏之间的间距以避免内容重合
+}
+
+% 优化浮动参数设置
+\renewcommand{\dbltopfraction}{0.85}      % 允许在顶部使用的页面分数
+\renewcommand{\dblfloatpagefraction}{0.7} % 页面必须至少有多少比例才能放置浮动页
+\setcounter{topnumber}{2}                 % 页面顶部最多浮动对象数
+\setcounter{bottomnumber}{2}              % 页面底部最多浮动对象数
+\setcounter{totalnumber}{4}               % 单页最多浮动对象总数
+\renewcommand{\textfraction}{0.15}        % 页面必须至少包含的文本比例
+
+% 表格样式设置
+\renewcommand{\arraystretch}{1.2}  % 默认表格行间距
+\setlength{\tabcolsep}{4pt}       % 默认表格列间距
+
+% 代码格式设置 - 优化以避免行号超出
+\lstset{
+    basicstyle=\scriptsize\ttfamily,  % 减小代码字体
+    numbers=left,
+    numberstyle=\tiny,
+    numbersep=5pt,  % 增加行号与代码之间的距离
+    xleftmargin=20pt,  % 为行号留出足够的空间
+    frame=single,
+    breaklines=true,
+    keywordstyle=\color{blue},
+    commentstyle=\color{green!60!black},
+    stringstyle=\color{red}
+}
+
+% 强制刷新标签引用系统，防止编译错误
+\makeatletter
+\let\@oldlabel\label
+\renewcommand{\label}[1]{\@oldlabel{#1}}
+\makeatother
+
+% 设置图表标签和引用样式
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,      
+    urlcolor=cyan,
+    pdftitle={ResNeXt与DenseNet对比研究},
+    pdfauthor={薛亦呈}
+}
+
+\title{ResNeXt与DenseNet对比研究：从头训练与微调的效果分析}
+\author{薛亦呈 3230104027}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+本研究对ResNeXt和DenseNet两种深度卷积神经网络架构进行了对比分析，重点比较了从头训练和微调两种训练方式对模型性能的影响。研究在多个图像分类数据集上进行了实验，分析了模型的准确率、收敛速度、参数效率以及计算复杂度等指标。实验结果表明，微调方法在大多数情况下能够显著提高模型的性能和训练效率，尤其是在数据集规模较小的情况下。本研究的发现为深度学习模型的选择和训练策略提供了实用的参考。
+\end{abstract}
+
+\section{问题简介}
+深度学习模型在计算机视觉领域取得了巨大成功，而ResNeXt和DenseNet作为深度卷积神经网络的代表性架构，各自提出了不同的网络连接方式和信息流路径。然而，这些模型在不同训练策略（从头训练vs微调）下的性能差异尚未得到充分研究。
+
+本研究旨在回答以下关键问题：
+\begin{itemize}
+    \item ResNeXt和DenseNet在从头训练时的性能对比如何？
+    \item 与从头训练相比，微调对这两种网络架构的性能提升有多大？
+    \item 哪种网络架构在微调任务中表现更佳？
+    \item 不同数据集规模和任务难度对训练策略选择有何影响？
+\end{itemize}
+
+这些问题的答案对于实际应用中的模型选择和训练策略制定具有重要指导意义，尤其是在计算资源有限或特定领域数据稀缺的情况下。
+
+\section{模型与算法介绍}
+
+\subsection{ResNeXt}
+ResNeXt网络是ResNet的扩展版本，由Xie等人于2017年提出\cite{xie2017aggregated}。它引入了"cardinality"的概念，通过聚合一组具有相同拓扑的转换来增强模型的表示能力。
+
+ResNeXt的核心构建块可以表示为：
+\begin{equation}
+y = F(x, \{W_i\}) + x
+\end{equation}
+
+其中$F(x, \{W_i\})$可以进一步表示为聚合转换：
+\begin{equation}
+F(x, \{W_i\}) = \sum_{i=1}^{C} T_i(x, W_i)
+\end{equation}
+
+这里$C$表示cardinality，即并行路径的数量，$T_i$表示一个转换函数。
+
+ResNeXt的主要优势在于：
+\begin{itemize}
+    \item 在不增加参数复杂度的情况下提高模型性能
+    \item 通过分组卷积实现了高效计算
+    \item 结构规整，易于扩展到不同尺寸
+\end{itemize}
+
+\subsection{DenseNet}
+DenseNet由Huang等人于2017年提出\cite{huang2017densely}，其核心思想是在网络中建立密集连接，使每一层都直接连接到其后的所有层。这种连接方式促进了特征重用和梯度流动。
+
+对于第$\ell$层，其输入是所有前面层的特征图的拼接：
+\begin{equation}
+x_\ell = H_\ell([x_0, x_1, ..., x_{\ell-1}])
+\end{equation}
+
+其中$H_\ell$是组合函数，通常包括批标准化、ReLU激活和卷积操作，$[x_0, x_1, ..., x_{\ell-1}]$表示前面所有层特征图的连接。
+
+DenseNet的主要优势包括：
+\begin{itemize}
+    \item 缓解了梯度消失问题
+    \item 加强了特征传播和特征重用
+    \item 减少了参数数量，提高了计算效率
+    \item 具有正则化效果，减轻了过拟合
+\end{itemize}
+
+\subsection{训练策略}
+本研究比较了两种主要训练策略：
+
+\textbf{从头训练 (Training from Scratch)}：使用随机初始化的网络权重，在目标数据集上完整地训练模型。这种方法通常需要大量数据和较长的训练时间，但能够使模型充分适应特定任务的特点。
+
+\textbf{微调 (Fine-tuning)}：首先在大型数据集（ImageNet）上预训练模型，然后将预训练权重迁移到目标任务上，仅调整部分网络层（通常是最后几层）。微调通常能够在较少的训练数据和训练时间下获得较好的性能。
+
+\section{数据集和算例参数介绍}
+
+\subsection{数据集}
+本研究使用了以下数据集：
+
+\textbf{CIFAR-10}：包含60,000张32×32彩色图像，分为10个类别，每类6,000张。训练集有50,000张，测试集有10,000张。
+
+\subsection{实验设置}
+\subsubsection{模型配置}
+
+
+\textbf{ResNeXt配置}：
+\begin{itemize}
+    \item ResNeXt-50 (32×4d)：具有50层，cardinality为32，每个路径的宽度为4
+\end{itemize}
+
+\textbf{DenseNet配置}：
+\begin{itemize}
+    \item DenseNet-121：增长率(growth rate)为32，具有121层
+\end{itemize}
+
+\subsubsection{训练参数}
+
+\textbf{共同训练参数}：
+\begin{itemize}
+    \item 批量大小：128
+    \item 优化器：AdamW，权重衰减1e-5
+    \item 学习率：初始1e-4，在总epochs内按余弦曲线衰减到0
+    \item 总epochs：50
+    \item 早停机制：early\_stop\_patience=10
+    \item 数据增强：归一化
+\end{itemize}
+
+\textbf{训练模式}：
+\begin{itemize}
+    \item \textbf{预训练(Pretrained)}：直接使用在ImageNet上预训练好的模型权重进行评估
+    \item \textbf{微调(Fine-tuning)}：使用预训练权重初始化，根据冻结层数分为三种模式：
+    \begin{itemize}
+    \item \textbf{仅调整最后一层(last\_layer)}：只训练全连接层
+    \item \item \textbf{调整最后一个块(last\_block)}：训练最后一个卷积块和全连接层
+    \item \textbf{调整最后两个块(last\_two\_blocks)}：训练最后两个卷积块和全连接层
+    \end{itemize}
+    \item \textbf{从头训练(Scratch)}：使用随机初始化的网络权重，完整训练模型
+\end{itemize}
+
+\section{结果罗列与汇总}
+
+\subsection{准确率与训练效率对比}
+表1展示了两个模型在CIFAR-10数据集上的性能对比。可以看到，ResNeXt-50在预训练模式下表现最佳，达到了87.31\%的准确率，而DenseNet-121在微调最后两块时表现最佳，达到了79.14\%的准确率。
+
+\begin{table*}[t]
+\centering
+\caption{不同模型与训练模式在CIFAR-10上的性能对比}
+\renewcommand{\arraystretch}{1.2} % 增加行间距
+\setlength{\tabcolsep}{3.5pt} % 减小列间距以适应页面宽度
+\begin{tabular}{>{\raggedright\arraybackslash}p{2.2cm}>{\raggedright\arraybackslash}p{2.8cm}ccc>{\raggedright\arraybackslash}p{2.2cm}}
+\toprule
+\textbf{模型} & \textbf{训练模式} & \textbf{准确率(\%)} & \textbf{训练时间} & \textbf{Epochs} & \textbf{可训练参数(MB)} \\
+\midrule
+\multirow{5}{=}{ResNeXt-50} 
+& 预训练 & 87.31 & 17分25秒 & 50 & 87.74 \\
+& 微调(最后层) & 43.95 & 8分32秒 & 38 & 0.08 \\
+& 微调(最后块) & 75.06 & 12分01秒 & 43 & 55.56 \\
+& 微调(最后两块) & 83.83 & 16分04秒 & 50 & 82.35 \\
+& 从头训练 & 54.40 & 17分43秒 & 50 & 87.74 \\
+\midrule
+\multirow{5}{=}{DenseNet-121} 
+& 预训练 & 86.58 & 27分51秒 & 50 & 26.57 \\
+& 微调(最后层) & 55.88 & 11分28秒 & 37 & 0.04 \\
+& 微调(最后块) & 67.71 & 6分39秒 & 16 & 8.27 \\
+& 微调(最后两块) & 79.14 & 22分57秒 & 48 & 19.10 \\
+& 从头训练 & 60.33 & 27分54秒 & 50 & 26.57 \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\subsection{训练时间与收敛速度}
+下面几张图展示了ResNeXt-50和DenseNet-121在不同训练模式下的训练过程。
+可以看到，预训练模型在前期收敛速度较快，微调模式下随着微调规模的扩大，模型性能提升，但仍达不到预训练模型的水平，
+而从头训练的模型甚至达不到相似的性能。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\columnwidth]{../figures/combined_accuracy_comparison.png}
+\caption{ResNeXt-50和DenseNet-121在不同训练模式下的验证准确率变化}
+\label{fig:accuracy_curve}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\subfigure[ResNeXt-50训练曲线]{
+    \includegraphics[width=0.48\columnwidth]{../figures/resnext50_scratch_accuracy.png}
+    \includegraphics[width=0.48\columnwidth]{../figures/resnext50_pretrained_accuracy.png}
+}
+\caption{从头训练与预训练ResNeXt-50模型的训练过程对比}
+\label{fig:training_curves_resnext}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\subfigure[DenseNet-121训练曲线]{
+    \includegraphics[width=0.48\columnwidth]{../figures/densenet121_scratch_accuracy.png}
+    \includegraphics[width=0.48\columnwidth]{../figures/densenet121_pretrained_accuracy.png}
+}
+\caption{从头训练与预训练DenseNet-121模型的训练过程对比}
+\label{fig:training_curves_densenet}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{不同模型达到收敛所需的训练时间和epoch数量}
+\renewcommand{\arraystretch}{1.2} % 增加行间距
+\resizebox{0.9\columnwidth}{!}{
+\begin{tabular}{lcccc}
+\toprule
+\multirow{2}{*}{\textbf{模型}} & \multicolumn{2}{c}{\textbf{从头训练}} & \multicolumn{2}{c}{\textbf{微调}} \\
+\cmidrule(lr){2-3} \cmidrule(lr){4-5}
+& \textbf{训练时间} & \textbf{收敛epoch} & \textbf{训练时间} & \textbf{收敛epoch} \\
+\midrule
+ResNeXt-50 & 17分43秒 & 50 & 16分04秒 & 50 \\
+DenseNet-121 & 27分54秒 & 50 & 22分57秒 & 48 \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+\subsection{参数效率分析}
+参数效率是评估深度学习模型的重要指标之一，它反映了模型在给定参数量下所能达到的性能水平。在本研究中， 我分析了ResNeXt-50和DenseNet-121两种模型的参数效率。
+
+表\ref{tab:param_compare}展示了两个模型的参数量对比。DenseNet-121的总参数量仅为ResNeXt-50的30.3\%，这一显著差异主要源于DenseNet的密集连接结构，它通过特征重用大幅减少了冗余参数。尽管参数量差距巨大，但两个模型在预训练状态下的准确率却相差不大，DenseNet-121仅比ResNeXt-50低0.73个百分点。这表明DenseNet架构在参数利用效率方面具有明显优势。
+
+\begin{table}[H]
+\centering
+\caption{不同模型的参数量和性能比较}
+\label{tab:param_compare}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{lccc}
+\toprule
+\textbf{模型} & \textbf{参数量(M)} & \textbf{可训练(MB)} & \textbf{准确率(\%)} \\
+\midrule
+ResNeXt-50 & 22.95 & 87.74 & 87.31 \\
+DenseNet-121 & 6.96 & 26.57 & 86.58 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+ 我进一步观察不同微调策略下的参数效率变化。图\ref{fig:acc_vs_params_1}展示了参与训练的参数量与模型准确率之间的关系。从图中可以明确看出，参数量与准确率并不呈简单的线性关系。特别是在微调最后一层时，仅训练极少量参数（ResNeXt-50为0.08MB，DenseNet-121为0.04MB），但两者的准确率却存在显著差异（43.95\% vs 55.88\%）。这说明DenseNet的特征表示对下游任务具有更好的迁移能力。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\columnwidth]{../figures/accuracy_vs_params.png}
+\caption{不同训练模式下参数效率对比。横轴为对数尺度下的可训练参数量，纵轴为验证准确率。可以看出，在相同参数量级别下，DenseNet通常具有更高的准确率，特别是在参数量较小的情况下。}
+\label{fig:acc_vs_params_1}
+\end{figure}
+
+值得注意的是，随着微调参数量的增加，两个模型的性能提升趋势不同：
+\begin{itemize}
+    \item ResNeXt-50呈现出较为陡峭的性能提升曲线，从最后一层到最后一个块的微调带来了31.11\%的准确率提升，这表明ResNeXt的最后几层对于具体任务的适应性较强。
+    \item DenseNet-121的性能提升相对平缓，同样的微调策略变化仅带来11.83\%的准确率提升，说明其特征表示在各层次上都较为通用。
+\end{itemize}
+
+从计算效率角度看，图\ref{fig:data_scaling}和图\ref{fig:training_time}展示了微调模式和模型性能及训练时间的关系。尽管DenseNet-121参数量更少，但在从头训练和微调最后两个块的情况下，其训练时间却长于ResNeXt-50。这可能是由于DenseNet的密集连接结构在前向传播和反向传播过程中需要处理更多的特征连接，增加了计算复杂度。然而，DenseNet在微调最后一个块时训练速度最快，且早停提前达到最佳效果，仅用16个epochs便达到了67.71\%的准确率，这为资源受限情况下的快速部署提供了一个优选方案。
+
+总体而言，DenseNet在参数效率方面表现优异，适合部署在资源受限的设备上；而ResNeXt在充分微调后可以达到更高的性能上限，适合追求最高准确率的应用场景。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\columnwidth]{../figures/accuracy_comparison.png}
+\caption{ResNeXt-50和DenseNet-121在不同训练模式下的性能对比。柱状图直观展示了不同训练策略对最终模型性能的影响，预训练模型表现最佳，而微调最后两个块能在大多数情况下接近预训练性能。}
+\label{fig:data_scaling}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\columnwidth]{../figures/training_time_comparison.png}
+\caption{不同模型及训练模式的训练时间对比。训练时间不仅与参数量相关，还与网络结构和收敛速度有关。DenseNet在微调最后一个块时训练速度最快。}
+\label{fig:training_time}
+\end{figure}
+
+\subsection{特征可视化与网络行为分析}
+
+为了深入理解不同网络架构和训练策略的行为差异， 我对模型训练过程中的性能变化进行了可视化分析，特别关注微调过程中的梯度流动和特征演化。
+
+图\ref{fig:feature_visualization_resnext}展示了ResNeXt-50在两种不同微调策略下的训练曲线。可以观察到，仅微调最后一层时，模型表现出明显的欠拟合现象，验证准确率在40%左右徘徊且波动较大。这表明ImageNet预训练的特征虽然通用，但直接用于CIFAR-10分类任务时存在域偏移(domain shift)问题，仅靠调整分类器权重无法有效适应新任务的特征分布。
+
+相比之下，微调最后一个块后，训练和验证曲线都呈现较为平稳的上升趋势，最终达到了75.06%的准确率。这种显著改善说明允许高层特征适应目标任务对于迁移学习至关重要。通过调整网络的高层表示，模型能够更好地捕捉CIFAR-10数据集中的关键区分特征，同时保留底层通用视觉特征。
+
+\begin{figure}[H]
+\centering
+\subfigure[ResNeXt-50最后层微调]{
+    \includegraphics[width=0.48\columnwidth]{../figures/resnext50_finetune_last_layer_accuracy.png}
+}
+\subfigure[ResNeXt-50最后块微调]{
+    \includegraphics[width=0.48\columnwidth]{../figures/resnext50_finetune_last_block_accuracy.png}
+}
+\caption{ResNeXt-50不同微调策略的训练过程对比。蓝线表示训练准确率，橙线表示验证准确率。(a)中仅微调最后一层时出现明显的性能瓶颈，而(b)中微调最后一个块时模型性能持续提升且更加稳定。这说明ResNeXt的特定任务适应性主要依赖于高层特征的调整。}
+\label{fig:feature_visualization_resnext}
+\end{figure}
+
+DenseNet-121表现出不同的学习行为，如图\ref{fig:feature_visualization_densenet}所示。即使只微调最后一层，DenseNet也能达到55.88%的准确率，明显高于ResNeXt-50的相应配置。这一差异可能源于DenseNet的密集连接结构，使得网络各层能够直接访问前面所有层的特征，从而在预训练过程中学习到更丰富、更通用的特征表示。这些特征即使不针对目标任务进行调整，也能为分类器提供足够的区分信息。
+
+当微调扩展到最后一个块时，DenseNet-121表现出极快的收敛速度，仅需16个epoch便达到最佳性能，且训练和验证准确率几乎同步提升，几乎没有过拟合迹象。这种稳定性进一步证明了DenseNet架构的正则化特性，其密集连接和特征重用机制有效降低了模型对特定训练样本的依赖。
+
+\begin{figure}[H]
+\centering
+\subfigure[DenseNet-121最后层微调]{
+    \includegraphics[width=0.48\columnwidth]{../figures/densenet121_finetune_last_layer_accuracy.png}
+}
+\subfigure[DenseNet-121最后块微调]{
+    \includegraphics[width=0.48\columnwidth]{../figures/densenet121_finetune_last_block_accuracy.png}
+}
+\caption{DenseNet-121不同微调策略的训练过程对比。与ResNeXt相比，DenseNet在仅微调最后一层时(a)就能获得相对较好的性能，且曲线更加平稳。当微调最后一个块时(b)，模型表现出极快的收敛速度，训练曲线和验证曲线几乎重合，表明其良好的泛化能力和稳定性。密集连接的特性使DenseNet在迁移学习场景中具有独特优势。}
+\label{fig:feature_visualization_densenet}
+\end{figure}
+
+通过对比两个网络的学习行为， 我得出以下关键发现：
+
+\begin{itemize}
+    \item ResNeXt在微调时更依赖于高层特征的调整，这与其残差连接结构相关，特征信息主要沿着主路径逐层传递和转换。
+    \item DenseNet得益于其密集连接结构，预训练特征具有更强的通用性和可迁移性，即使最小程度的微调也能获得不错的性能。
+    \item 两种网络结构在特征学习机制上存在本质差异：ResNeXt通过并行转换和特征聚合增强表达能力，而DenseNet则通过特征重用和多尺度特征融合提高泛化能力。
+    \item 从训练稳定性看，DenseNet在各种微调配置下都表现出更小的训练-验证准确率差距，说明其较强的抗过拟合能力。
+\end{itemize}
+
+这些发现不仅帮助我们理解两种网络架构的内在工作机制，也为实际应用中的模型选择和训练策略制定提供了理论依据。
+
+\subsection{实践建议}
+\begin{itemize}
+    \item 当计算资源和参数存储空间有限时，推荐使用DenseNet架构，它能以更少的参数实现接近的性能。
+    \item 当数据集与预训练数据相似度高时，微调最后一到两个块通常是最佳选择，平衡了训练效率和模型性能。
+    \item 在训练资源充足的情况下，微调ResNeXt的最后两个块可以获得最佳性能，但训练时间也最长。
+    \item 当面对全新领域的数据集时，采用DenseNet从头训练可能比ResNeXt更容易获得较好的初始结果。
+\end{itemize}
+
+\section{代码附录}
+\url{https://github.com/xueyicheng1026/ANN_Models-Algorithms}
+
+\begin{thebibliography}{99}
+
+\bibitem{xie2017aggregated}
+Xie, S., Girshick, R., Dollár, P., Tu, Z., \& He, K. (2017). Aggregated residual transformations for deep neural networks. In \textit{Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition} (pp. 1492-1500).
+
+\bibitem{huang2017densely}
+Huang, G., Liu, Z., Van Der Maaten, L., \& Weinberger, K. Q. (2017). Densely connected convolutional networks. In \textit{Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition} (pp. 4700-4708).
+
+\bibitem{he2016deep}
+He, K., Zhang, X., Ren, S., \& Sun, J. (2016). Deep residual learning for image recognition. In \textit{Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition} (pp. 770-778).
+
+\bibitem{deng2009imagenet}
+Deng, J., Dong, W., Socher, R., Li, L. J., Li, K., \& Fei-Fei, L. (2009). ImageNet: A large-scale hierarchical image database. In \textit{2009 IEEE Conference on Computer Vision and Pattern Recognition} (pp. 248-255).
+
+\bibitem{krizhevsky2009learning}
+Krizhevsky, A., \& Hinton, G. (2009). Learning multiple layers of features from tiny images. \textit{Technical Report, University of Toronto}.
+
+\bibitem{yosinski2014transferable}
+Yosinski, J., Clune, J., Bengio, Y., \& Lipson, H. (2014). How transferable are features in deep neural networks? In \textit{Advances in Neural Information Processing Systems} (pp. 3320-3328).
+
+\end{thebibliography}
+
+\end{document}
