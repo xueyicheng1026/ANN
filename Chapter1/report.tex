@@ -1,0 +1,765 @@
+\documentclass[a4paper, twocolumn]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{geometry} 
+\usepackage{ctex}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref} 
+\usepackage{booktabs}
+\usepackage[numbers]{natbib}
+\usepackage{graphicx}
+\usepackage{subfigure}
+\usepackage{makecell}
+\usepackage{float}
+\usepackage{url}
+\usepackage{tikz}
+
+
+\usetikzlibrary{arrows, positioning, shapes, arrows.meta, positioning, shapes.geometric,calc}
+
+\setlength{\floatsep}{5pt plus 2pt minus 2pt} % 调整浮动体之间的间距
+\setlength{\textfloatsep}{5pt plus 2pt minus 2pt} % 调整文本与浮动体之间的间距
+\setlength{\intextsep}{5pt plus 2pt minus 2pt} % 调整文本中的浮动体间距
+
+\geometry{margin=1.7cm, columnsep=20pt} 
+\lstset{
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    frame=single,
+    numbers=left,
+    numbersep=10pt,
+    xleftmargin=1em,
+    xrightmargin=1em,
+    keywordstyle=\color{blue},
+    commentstyle=\color{gray},
+}
+
+\title{课程报告一：手搓MLP在MNIST及Fashion-MNIST上不同超参数的对照实验}
+\author{薛亦呈}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{问题简介}
+
+本实验旨在通过手动实现多层感知机（MLP），深入探究不同参数配置对分类任务性能的影响。
+基于反向传播算法，分别在 MNIST、Fashion-MNIST 等数据集上进行训练与测试，系统分析网络结构、激活函数、优化器等因素的作用机制，
+并尝试通过多种优化策略提升程序性能。研究结果将为深度学习模型的参数选择和性能优化提供实践指导，同时增强对神经网络工作原理的理解。
+
+\section{模型与算法介绍}
+
+\subsection{反向传播算法的计算图表示}
+反向传播通过计算图实现梯度的高效计算：
+反向传播通过计算图实现梯度的高效计算，其核心思想是利用链式法则逐层计算梯度\cite{Goodfellow-et-al-2016}。
+计算图由以下部分组成：
+\begin{itemize}
+    \item \textbf{节点}: 表示运算 (如矩阵运算、激活函数)
+    \item \textbf{边}: 表示数据流向 (如输入特征、权重矩阵)
+    \item \textbf{前向传播}: 沿计算图计算各层输出值
+    \item \textbf{反向传播}: 从损失函数出发，利用链式法则逐层计算梯度 （$\frac{\partial L}{\partial W}$），更新权重
+\end{itemize} 
+
+\begin{figure}[H]
+    \centering
+    \resizebox{\columnwidth}{!}{
+    \begin{tikzpicture}[
+        node distance=2cm,
+        op/.style={rectangle, draw=blue!50, fill=blue!10, thick, minimum size=8mm},
+        var/.style={circle, draw=black!50, fill=green!10, thick, minimum size=8mm},
+        grad/.style={red, dashed, -latex}
+    ]
+      
+      
+    % 前向传播节点
+    \node[var] (X) {\( \mathbf{x} \)};
+    \node[op, right=of X] (W) {MatMul};
+    \node[op, right=of W] (sigma) {ReLU};
+    \node[var, right=of sigma] (L) {\( \mathcal{L} \)};
+    \node[var, below=of W] (W_val) {\( \mathbf{W} \)};
+    
+    % 前向传播连接
+    \draw[->] (X) -- node[above] {输入} (W);
+    \draw[->] (W_val) -- node[right] {权重} (W);
+    \draw[->] (W) -- node[above] {\(\mathbf{z}\)} (sigma);
+    \draw[->] (sigma) -- node[above] {\(\mathbf{a}\)} (L);
+    
+    % 反向传播连接
+    \draw[grad] (sigma) to[bend left=20] node[below, sloped] {\(\frac{\partial \mathcal{L}}{\partial \mathbf{z}}\)} (W);
+    \draw[grad] (L) to[bend left=20] node[below, sloped] {\(\frac{\partial \mathcal{L}}{\partial \mathbf{a}}\)} (sigma);
+    \draw[grad] (W.240) -- node[below, sloped] {\( \frac{\partial \mathcal{L}}{\partial \mathbf{W}} \)} (W_val.north);
+    \draw[grad] (W.200) -- node[below, sloped] {\( \frac{\partial \mathcal{L}}{\partial \mathbf{x}} \)} (X.east);
+
+    \end{tikzpicture}
+    }
+    \caption{反向传播计算图（红色虚线为梯度传播路径）}
+    \label{fig:backprop}
+\end{figure}
+
+这种机制使得神经网络能够在复杂的非线性映射中找到最优解。
+
+
+\subsection{网络结构与关键组件}
+本实验采用的网络架构如下：
+\begin{itemize}
+    \item \textbf{网络架构}: FullyConnected (Exp: [784, 256, 64, 10])
+    \item \textbf{激活函数}: Sigmoid、ReLU、Tanh
+    \item \textbf{正则化}: Dropout
+    \item \textbf{优化器}: SGD 、 Adam
+    \item \textbf{损失函数}: CrossEntropy
+\end{itemize}
+
+\begin{figure}[H]
+    \centering
+    \resizebox{\columnwidth}{!}{
+    \begin{tikzpicture}[
+        neuron/.style={circle, draw=black, fill=white, minimum size=5.2mm},
+        arrow/.style={-{stealth[scale=0.6]}, semithick, black},  % 恢复箭头尺寸
+        x=3.3cm,
+        layer label/.style={below=8mm, font=\footnotesize\bfseries}
+    ]
+
+    % ===== 统一间距参数 =====
+    \def\spacing{0.6}
+
+    % ===== 各层定义 =====
+    % 输入层 (6 neurons)
+    \foreach \i [evaluate=\i as \y using (3.5-\i)*\spacing] in {1,...,6}
+        \node[neuron] (in-\i) at (0,\y) {};
+
+    % 隐藏层1 (5 neurons)
+    \foreach \i [evaluate=\i as \y using (3-\i)*\spacing] in {1,...,5}
+        \node[neuron] (h1-\i) at (1,\y) {};
+
+    % 隐藏层2 (4 neurons)
+    \foreach \i [evaluate=\i as \y using (2.5-\i)*\spacing] in {1,...,4}
+        \node[neuron] (h2-\i) at (2,\y) {};
+
+    % 输出层 (3 neurons)
+    \foreach \i [evaluate=\i as \y using (2-\i)*\spacing] in {1,...,3}
+        \node[neuron] (out-\i) at (3,\y) {};
+
+    % ===== 连接线优化 =====
+    \node[right=20mm of out-2] (L) {\textit{\large\(\mathcal{L}\)}};
+    \draw[arrow] (out-2) -- 
+        node[above, sloped, font=\footnotesize, pos=0.5] 
+        {CrossEntropy} (L);
+
+    \foreach \i in {1,...,6} \foreach \j in {1,...,5} 
+        \draw[arrow] (in-\i) -- (h1-\j);
+    \foreach \i in {1,...,5} \foreach \j in {1,...,4} 
+        \draw[arrow] (h1-\i) -- (h2-\j);
+    \foreach \i in {1,...,4} \foreach \j in {1,...,3} 
+        \draw[arrow] (h2-\i) -- (out-\j);
+
+    % ===== ReLU标注修正 =====
+    \draw[orange!80!black, -{stealth[scale=0.6]}, thick] 
+        ($(h2-2.north east)+(1mm,1mm)$) -- ++(45:6mm)  % 调整起点和角度
+        node[right=1mm, font=\footnotesize] (r1) {ReLU};
+
+    \draw[orange!80!black, -{stealth[scale=0.6]}, thick] 
+        ($(h1-2.north east)+(0.3mm,0.3mm)$) -- ++(45:6mm)  % 调整起点和角度
+        node[right=0.3mm, font=\footnotesize] (r2) {ReLU};
+    
+    \draw[orange!80!black, -{stealth[scale=0.6]}, thick] 
+        ($(r2.north east)+(0.3mm,0.3mm)$) -- ++(5:4mm)  % 调整起点和角度
+        node[right=0.4mm, font=\footnotesize] {Dropout};
+
+    % ===== 层标签 =====
+    \path (0,-1.6) node[layer label] {输入层}
+          (1,-1.6) node[layer label] {隐藏层1}
+          (2,-1.6) node[layer label] {隐藏层2}
+          (3,-1.6) node[layer label] {输出层};
+
+    \end{tikzpicture}
+    }
+    \caption{MLP网络架构示意图}
+    \label{fig:mlp}
+\end{figure}
+
+\section{数据集与实验参数}
+
+\subsection{数据集简介}
+本实验采用的数据集如下：
+\begin{itemize}
+    \item \textbf{MNIST}: 手写数字灰度图（28×28），训练集60k，测试集10k
+    \item \textbf{FashionMNIST}: 10类服饰灰度图（28×28），训练集60k，测试集10k
+\end{itemize}
+
+\subsection{实验配置}
+表 1 展示了实验参数配置，包括网络层结构、激活函数、优化器和训练轮数等。
+\begin{table}[H]
+    \centering
+    \caption{实验参数配置}
+    \label{tab:config}
+    \resizebox{\columnwidth}{!}{
+    \begin{tabular}{@{}ll@{}}
+        \toprule
+        参数 & 选项 \\ 
+        \midrule
+        网络层结构 & \makecell[l]{{[784, 28, 10]}、{[784, 256, 128, 10]} \\ {[784, 512, 256, 128, 64, 10]}}\\
+        激活函数 & Sigmoid、ReLU、Tanh\\
+        优化器 & SGD (lr=0.01, batch=64)、Adam (lr=0.00035) \\
+        训练轮数 & 30 epochs \\
+        \bottomrule
+    \end{tabular}
+    }
+\end{table}
+
+\section{实验结果与分析}
+本实验采用单一变量法，测试了不同网络深度、不同激活函数和不同优化器对模型性能的影响。
+通过对比实验结果，分析了各因素对模型性能的影响，为深度学习模型的参数选择和性能优化提供实践指导。
+\subsection{不同网络深度对比}
+统一使用 ReLU 作为激活函数，Adam 作为优化器，对比不同网络深度在 MNIST 和 Fashion-MNIST 数据集上的表现。
+表 2 展示了不同网络深度的准确率，图 1 至图 3 分别展示了浅层、中层和深层网络在两个数据集上的表现。
+\begin{table}[H]
+    \centering
+    \caption{不同网络深度对比}
+    \label{tab:netdepth}
+    \resizebox{\columnwidth}{!}{
+    \begin{tabular}{@{}lcc@{}}
+        \toprule
+        网络深度 & MNIST准确率 & FashionMNIST准确率 \\ 
+        \midrule
+        {[784, 28, 10]} & 96.8\% & 88.1\% \\
+        {[784, 256, 128, 10]} & 98.3\% & 89.7\% \\
+        {[784, 512, 256, 128, 64, 10]} & 98.4\% & 89.4\%  \\
+        \bottomrule
+    \end{tabular}
+    }
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \subfigure[浅层网络在MNIST上的表现]{
+        \includegraphics[width=0.45\textwidth]{image/11m.png}
+        \label{fig:11m}
+    }
+    \subfigure[浅层网络在FashionMNIST上的表现]{
+        \includegraphics[width=0.45\textwidth]{image/11f.png}
+        \label{fig:11f}
+    }
+    \caption{浅层网络表现}
+    \label{fig:11}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \subfigure[中层网络在MNIST上的表现]{
+        \includegraphics[width=0.45\textwidth]{image/12m.png}
+        \label{fig:12m}
+    }
+    \subfigure[中层网络在FashionMNIST上的表现]{
+        \includegraphics[width=0.45\textwidth]{image/12f.png}
+        \label{fig:12f}
+    }
+    \caption{中层网络表现}
+    \label{fig:12}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \subfigure[深层网络在MNIST上的表现]{
+        \includegraphics[width=0.45\textwidth]{image/13m.png}
+        \label{fig:13m}
+    }
+    \subfigure[深层网络在FashionMNIST上的表现]{
+        \includegraphics[width=0.45\textwidth]{image/13f.png}
+        \label{fig:13f}
+    }
+    \caption{深层网络表现}
+    \label{fig:13}
+\end{figure}
+
+\textbf{结论}：网络深度越深在 MNIST 上的表现越好，但随着深度加深这种优势逐渐减弱，并且在 FashionMNIST 上表现会略有退化。
+              这与He的研究结果\cite{he2016deep}一致，深层网络在复杂数据集上可能出现过拟合或梯度消失问题。
+
+
+\subsection{不同激活函数对比}
+统一使用 [784, 256, 128, 10] 作为网络深度，Adam 作为优化器，对比不同激活函数在 MNIST 和 Fashion-MNIST 数据集上的表现。
+表 3 展示了不同激活函数的准确率，图 4 至图 6 分别展示了 ReLU、Sigmoid 和 Tanh 在两个数据集上的表现。
+\begin{table}[H]
+    \centering
+    \caption{激活函数性能对比}
+    \label{tab:activation}
+    \resizebox{\columnwidth}{!}{
+    \begin{tabular}{@{}lcc@{}}
+        \toprule
+        激活函数 & MNIST准确率 & FashionMNIST准确率 \\ 
+        \midrule
+        ReLU & 98.2\% & 90.2\% \\
+        Sigmoid & 97.8\% & 88.9\% \\
+        Tanh & 97.7\% & 89.1\%  \\
+        \bottomrule
+    \end{tabular}
+    }
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \subfigure[ReLU在MNIST上的表现]{
+        \includegraphics[width=0.45\textwidth]{image/21m.png}
+        \label{fig:21m}
+    }
+    \subfigure[ReLU在FashionMNIST上的表现]{
+        \includegraphics[width=0.45\textwidth]{image/21f.png}
+        \label{fig:21f}
+    }
+    \caption{ReLU表现}
+    \label{fig:21}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \subfigure[Sigmoid在MNIST上的表现]{
+        \includegraphics[width=0.45\textwidth]{image/22m.png}
+        \label{fig:22m}
+    }
+    \subfigure[Sigmoid在FashionMNIST上的表现]{
+        \includegraphics[width=0.45\textwidth]{image/22f.png}
+        \label{fig:22f}
+    }
+    \caption{Sigmoid表现}
+    \label{fig:22}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \subfigure[Tanh在MNIST上的表现]{
+        \includegraphics[width=0.45\textwidth]{image/23m.png}
+        \label{fig:23m}
+    }
+    \subfigure[Tanh在FashionMNIST上的表现]{
+        \includegraphics[width=0.45\textwidth]{image/23f.png}
+        \label{fig:23f}
+    }
+    \caption{Tanh表现}
+    \label{fig:23}
+\end{figure}
+
+\textbf{结论}：ReLU 收敛更快且准确率更高，缓解梯度消失问题。
+              Sigmoid 和 Tanh 在训练初期可能出现梯度消失，导致收敛速度较慢。
+
+\subsection{不同优化器对比}
+统一使用 [784, 256, 128, 10] 作为网络深度，ReLU 作为激活函数，对比不同优化器在 MNIST 和 Fashion-MNIST 数据集上的表现。
+表 4 展示了不同优化器的准确率，图 7 和图 8 分别展示了 Adam 和 SGD 在两个数据集上的表现。
+\begin{table}[H]
+    \centering
+    \caption{优化器性能对比}
+    \label{tab:optimizer}
+    \resizebox{\columnwidth}{!}{
+    \begin{tabular}{@{}lcc@{}}
+        \toprule
+        优化器 & MNIST准确率 & FashionMNIST准确率 \\ 
+        \midrule
+        Adam(0.0035) & 98.4\% & 90.2\% \\
+        SGD(0.01) & 82.4\% & 69.9\% \\
+        \bottomrule
+    \end{tabular}
+    }
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \subfigure[Adam在MNIST上的表现]{
+        \includegraphics[width=0.45\textwidth]{image/31m.png}
+        \label{fig:31m}
+    }
+    \subfigure[Adam在FashionMNIST上的表现]{
+        \includegraphics[width=0.45\textwidth]{image/31f.png}
+        \label{fig:31f}
+    }
+    \caption{Adam表现}
+    \label{fig:31}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \subfigure[SGD在MNIST上的表现]{
+        \includegraphics[width=0.45\textwidth]{image/32m.png}
+        \label{fig:32m}
+    }
+    \subfigure[SGD在FashionMNIST上的表现]{
+        \includegraphics[width=0.45\textwidth]{image/32f.png}
+        \label{fig:32f}
+    }
+    \caption{SGD表现}
+    \label{fig:32}
+\end{figure}
+
+\textbf{结论}：Adam 结合动量与自适应学习率，综合性能更优，这与Kingma的研究结果\cite{kingma2015adam}一致。SGD 收敛速度较慢，且在复杂数据集上表现不佳。
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.45\textwidth]{image/HeatMap.png}
+    \caption{不同参数配置下的准确率热力图}
+    \label{fig:heatmap}
+\end{figure}
+
+\section{程序优化方案}
+\begin{itemize}
+    \item \textbf{批处理加速}：使用向量化运算替代循环\cite{hennessy2017computer}
+    \item \textbf{内存管理}：限制中间变量存储，启用\lstinline{del}及时释放
+    \item \textbf{并行计算}：利用PyTorch DataLoader多线程加载数据
+    \item \textbf{早停法}：验证集损失连续3轮不下降时终止训练
+\end{itemize}
+
+经优化后，单epoch训练时间从10s缩短至5s（Macbook pro M3）。
+
+\section{结论与心得}
+通过本次实验，得出以下结论与心得：
+\begin{itemize}
+    \item 深层网络（如[784,256,64,10]）较浅层网络在分类任务上提升约1-2\%的准确率，表明增加网络深度有助于学习更复杂的特征表示。
+    \item Adam优化器在多数场景下表现稳定，推荐优先选用，其结合了动量和自适应学习率的优点，能够快速收敛并取得较好的性能。
+    \item 程序优化需权衡代码可读性与执行效率，在追求性能提升的同时，应保持代码的清晰和可维护性。
+    \item 未来的研究方向可以进一步探索更复杂的网络结构和优化算法，以提高模型在不同类型数据集上的泛化能力和鲁棒性。\cite{Goodfellow-et-al-2016}
+\end{itemize}
+
+
+\bibliographystyle{plain}
+\bibliography{1.bib} 
+
+\newpage
+
+\section*{附录：代码实现}
+关键代码片段 :
+\noindent \textbf{基类定义}：
+\begin{lstlisting}[language=Python]
+#Based Class
+from abc import ABC, abstractmethod
+
+class Layer:
+    def forward (self, x):
+        raise NotImplementedError
+    
+    def backward (self, grad):
+        raise NotImplementedError
+    
+    def train(self):
+        pass
+    
+    def eval(self):
+        pass
+    
+    def parameters(self):
+        return []
+            
+class Optimizer(ABC):
+    def __init__(self, parameters):
+        self.parameters = parameters
+    
+    @abstractmethod
+    def step(self):
+        raise NotImplementedError("Optimizer must implement step()")
+    
+    def zero_grad(self):
+         for param in self.parameters:
+            if "dW" in param:
+                param["dW"]().fill(0)
+            if "db" in param:
+                param["db"]().fill(0)
+
+class Loss:
+    def compute_loss(self, y_pred, y_true): 
+        raise NotImplementedError
+    
+class DataSet(ABC):
+    @abstractmethod
+    def __len__(self):
+        raise NotImplementedError
+    
+    @abstractmethod
+    def __getitem__(self, index):
+        raise NotImplementedError
+    
+    @abstractmethod
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]
+\end{lstlisting}
+
+\noindent \textbf{激活函数实现}：
+\begin{lstlisting}[language=Python]
+#Activation Function Layer
+class Sigmoid(Layer):
+    def __init__(self):
+        pass
+    
+    def sigmoid(self, x):
+        return 1/(1+np.exp(-x))
+    
+    def forward(self, x):
+        self.x = x
+        self.y = self.sigmoid(self.x)
+        return self.y
+    
+    def backward(self, d):
+        sig = self.sigmoid(self.x)
+        return d*sig*(1-sig)
+\end{lstlisting}
+
+\noindent \textbf{全连接层实现}：
+\begin{lstlisting}[language=Python]
+#Fully Connected Layer
+class FullyConnected(Layer):
+    def __init__(self, input_dim, output_dim):
+        self.W = np.random.randn(output_dim, input_dim) * np.sqrt(2.0 / input_dim)  
+        self.b = np.zeros((output_dim, 1))
+        self.dW = np.zeros_like(self.W)
+        self.db = np.zeros_like(self.b)
+        self.x = None
+
+    def forward(self, x):
+        self.x = x  # x: (batch_size, input_dim)
+        return np.dot(x, self.W.T) + self.b.T  # output: (batch_size, output_dim)
+
+    def backward(self, d):
+        # d: (batch_size, output_dim)
+        self.dW = np.dot(d.T, self.x) / d.shape[0]  # (output_dim, input_dim)
+        self.db = np.sum(d, axis=0, keepdims=True).T / d.shape[0]  # (output_dim, 1)
+        return np.dot(d, self.W)  # (batch_size, input_dim)
+
+    def parameters(self):
+        return [{
+            "W": lambda: self.W, 
+            "b": lambda: self.b, 
+            "dW": lambda: self.dW, 
+            "db": lambda: self.db,
+            "set_W": lambda new_W: setattr(self, "W", new_W), 
+            "set_b": lambda new_b: setattr(self, "b", new_b)  
+        }]
+
+    def zero_grad(self):
+        self.dW.fill(0)  
+        self.db.fill(0)
+\end{lstlisting}
+
+\noindent \textbf{损失函数实现}：
+\begin{lstlisting}[language=Python]
+#Loss Function
+class CrossEntropy(Loss):
+    @staticmethod
+    def compute_loss(y_pred, y_true):
+        epsilon = 1e-15
+        y_pred = np.clip(y_pred, epsilon, 1 - epsilon)
+        
+        loss = -np.mean(np.sum(y_true * np.log(y_pred), axis=1))
+        grad = (y_pred - y_true) / y_pred.shape[0] 
+        return loss, grad
+\end{lstlisting}
+
+\noindent \textbf{正则化层实现}：
+\begin{lstlisting}[language=Python]
+#Normalization Layer
+class Dropout(Layer):
+    def __init__(self, p=0.5):
+        self.p = p
+        self.mask = None
+        self.is_training = False
+        
+    def forward(self, x):
+        self.mask = np.random.rand(*x.shape) < (1 - self.p) 
+        if  self.is_training:
+            return x * self.mask /  (1 - self.p)
+        else:
+            return x
+    
+    def backward(self, grad):
+        if self.is_training:
+            return grad * self.mask
+        else:
+            return grad
+    
+    def train(self):
+        self.is_training = True
+        
+    def eval(self):
+        self.is_training = False
+\end{lstlisting}
+
+\noindent \textbf{优化器实现}：
+\begin{lstlisting}[language=Python]
+#Optimizer
+class SGD(Optimizer):
+    def __init__(self, parameters, lr=0.01):
+        super().__init__(parameters)
+        self.lr = lr
+
+    def step(self):
+        for param in self.parameters:
+            for key in ['W', 'b']:
+                g = param[f'd{key}']()  
+                new_value = param[key]() - self.lr * g 
+                param[f"set_{key}"](new_value)  
+
+class Adam(Optimizer):
+    def __init__(self, parameters, lr=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8):
+        super().__init__(parameters)
+        self.lr = lr
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.epsilon = epsilon
+        self.m = [{k: np.zeros_like(param[k]) for k in ['W', 'b']} for param in parameters]
+        self.v = [{k: np.zeros_like(param[k]) for k in ['W', 'b']} for param in parameters]
+        self.t = 0
+
+    def step(self):
+        self.t += 1
+        for i, param in enumerate(self.parameters):
+            for key in ['W', 'b']:
+                g = param[f'd{key}']()  
+                self.m[i][key] = self.beta1 * self.m[i][key] + (1 - self.beta1) * g
+                self.v[i][key] = self.beta2 * self.v[i][key] + (1 - self.beta2) * (g ** 2)
+                m_hat = self.m[i][key] / (1 - self.beta1 ** self.t)
+                v_hat = self.v[i][key] / (1 - self.beta2 ** self.t)
+    
+                new_value = param[key]() - self.lr * m_hat / (np.sqrt(v_hat) + self.epsilon)  
+                param[f"set_{key}"](new_value)  
+\end{lstlisting}
+
+\noindent \textbf{网络类实现}：
+\begin{lstlisting}[language=Python]
+#Network
+class Net:
+    def __init__(self):
+        self.layers = []
+    
+    def add(self, layer):
+        self.layers.append(layer)
+        
+    def forward(self, x):
+        for layer in self.layers:
+            x = layer.forward(x)
+        return x
+    
+    def backward(self, grad):
+        for layer in reversed(self.layers):
+            grad = layer.backward(grad)
+        return grad
+    
+    def parameters(self):
+        params = []
+        for layer in self.layers:
+            params += layer.parameters()
+        return params
+    
+    def train(self):
+        for layer in self.layers:
+            layer.train()
+    
+    def eval(self):
+        for layer in self.layers:
+            layer.eval()
+\end{lstlisting}
+
+\noindent \textbf{DataSet、DataLoader实现}：
+\begin{lstlisting}[language=Python]
+#DataSet and DataLoader
+class TensorDataSet(DataSet):
+    def __init__(self, X, y=None, transform=None):
+        self.X = X
+        self.y = y
+        self.transform = transform
+    
+    def __len__(self):
+        return len(self.X)
+    
+    def __getitem__(self, idx):
+        x = self.X[idx]
+        if self.y is not None:
+            y = self.y[idx]
+        else:
+            y = None
+        
+        if self.transform is not None:
+            x = self.transform(x)
+        
+        return (x, y) if y is not None else x
+    
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]
+    
+class DataLoader:
+    def __init__(self, dataset, batch_size=1, shuffle=False):
+        self.dataset = dataset
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.indices = np.arange(len(dataset))
+        
+    def __iter__(self):
+        if self.shuffle:
+            np.random.shuffle(self.indices)
+            
+        for i in range(0, len(self.dataset), self.batch_size):
+            batch_indices = self.indices[i:i+self.batch_size]
+            batch = [self.dataset[idx] for idx in batch_indices]
+            
+            x_batch = np.stack([item[0] for item in batch])
+            y_batch = np.stack([item[1] for item in batch])
+            
+            yield (x_batch, y_batch) if y_batch is not None else x_batch
+
+    def __len__(self):
+        return (len(self.dataset) + self.batch_size - 1) // self.batch_size
+\end{lstlisting}
+
+\noindent \textbf{训练函数}：
+\begin{lstlisting}[language=Python]
+#Training Function
+import time
+
+def train(model, train_loader, test_loader, criterion, optimizer, epochs, plot=True):
+    train_losses = []
+    test_losses = []
+    train_accs = []
+    test_accs = []
+    
+    for epoch in range(epochs):
+        model.train()
+        train_loss = 0.0
+        train_acc = 0.0
+        for img, label in train_loader:
+            optimizer.zero_grad()
+            output = model.forward(img)
+            loss, grad = criterion.compute_loss(output, label)
+            model.backward(grad)
+            optimizer.step()
+            train_loss += loss
+            train_acc += Metrics.accuracy(output, np.argmax(label, axis=1))
+            
+        train_loss /= len(train_loader)
+        train_acc /= len(train_loader)
+
+        model.eval()
+        test_loss = 0.0
+        test_acc = 0.0
+        for img, label in test_loader:
+            output = model.forward(img)
+            loss, _ = criterion.compute_loss(output, label)
+            test_loss += loss
+            test_acc += Metrics.accuracy(output, np.argmax(label, axis=1))
+        test_loss /= len(test_loader)
+        test_acc /= len(test_loader)
+
+        print(f"Epoch {epoch+1}/{epochs} | "
+              f"Train Loss: {train_loss:.4f} | "
+              f"Test Loss: {test_loss:.4f} | "
+              f"Train Acc: {train_acc:.4f} | "
+              f"Test Acc: {test_acc:.4f}")
+        
+        train_losses.append(train_loss)
+        train_accs.append(train_acc)
+        test_losses.append(test_loss)
+        test_accs.append(test_acc)
+        
+    if plot:
+        plot_metrics(train_losses, test_losses, train_accs, test_accs)
+\end{lstlisting}
+
+\end{document}
+
+

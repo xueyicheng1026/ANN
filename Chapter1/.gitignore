@@ -1,0 +1,161 @@
+# 大文件和数据文件
+*.zip
+*.gz
+*.tar
+*.rar
+*.7z
+*.iso
+*.bin
+*.exe
+*.dll
+*.so
+*.dylib
+*.pdf
+*.ppt
+*.pptx
+*.doc
+*.docx
+
+# 数据集文件
+*.csv
+*.tsv
+*.json
+*.xml
+*.db
+*.sqlite
+*.sqlite3
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+*.npy
+*.npz
+
+# 大型模型文件
+*.model
+*.weights
+*.pt
+*.pth
+*.onnx
+*.tflite
+*.pb
+
+# 媒体文件
+*.mp4
+*.avi
+*.mov
+*.wmv
+*.mp3
+*.wav
+*.flac
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tiff
+*.ico
+
+# Python相关
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.ipynb_checkpoints/
+venv/
+ENV/
+
+# 临时文件
+*.log
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+.Trashes
+*.swp
+*.swo
+*~
+temp/
+tmp/
+
+# IDE配置文件
+.idea/
+.vscode/
+*.sublime-workspace
+*.sublime-project
+.project
+.settings/
+*.code-workspace
+
+# 大型日志和输出文件
+logs/
+output/
+results/
+checkpoints/
+save/
+
+# 项目特定文件和目录
+data/  
+models/hub/  # 保存的模型
+.env  # 环境变量文件
+config.local.ini  # 本地配置文件
+Fashion_MNIST/
+image/
+MNIST/
+archive 16.51.28/
+
+# 虚拟环境
+.virtualenv/
+.conda/
+.python-version
+Pipfile.lock
+poetry.lock
+
+# macOS 特定
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Jupyter Book 相关
+_build/
+.jupyter_cache/
+
+# 缓存文件
+.cache/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# 大型二进制或数据文件
+*.parquet
+*.feather
+*.arrow
+*.joblib
+*.dat
+*.mdb
+*.ldb
+*.sav
+*.rds
+
+# 临时生成的图表和可视化
+figures/temp/
+plots/debug/
